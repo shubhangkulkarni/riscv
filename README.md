@@ -1,6 +1,6 @@
 # RISCV32I Core
 ## Testing
-In order to test the working, please load the instructions into the code.hex file and compile all the .v files in the 'final' folder. After execution, waveform will be saved in 'riscv-singlecycle.vcd'. 
+In order to test the working, please load the instructions into the code.hex file and compile all the .v files in the 'final' folder. After execution, waveform will be saved in 'riscv-singlecycle.vcd' or 'riscv-pipeline.vcd' for single cycle and pipelined versions respectively. 
 
 ### Basic info
 1. Standard 32 4byte regs
