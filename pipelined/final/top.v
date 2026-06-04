@@ -1,4 +1,4 @@
-module top_module (input clk, input reset);
+module top_module (input clk, input reset, output ecall_out, output ebreak_out);
 
     wire sel; //done
     wire [31:0] branch_addr; //done
@@ -33,7 +33,8 @@ module top_module (input clk, input reset);
     wire [31:0] immediate_extended; //done
     wire [2:0] funct3; //done
     wire s; //done
-    instruction_decode i3(IF_ID_instruction, rs1, rs2, reg_write, rd, alu_src, wb_sel, mem_read, mem_write, branch, alu_op, immediate_extended, funct3, s); //changed input to the resp regs
+    wire ecall, ebreak;
+    instruction_decode i3(IF_ID_instruction, rs1, rs2, reg_write, rd, alu_src, wb_sel, mem_read, mem_write, branch, alu_op, immediate_extended, funct3, s, ecall, ebreak); //changed input to the resp regs
 
     wire [31:0] write_value; //done
     wire [31:0] rs1_read, rs2_read; //done
@@ -62,6 +63,7 @@ module top_module (input clk, input reset);
     reg ID_EX_reg_write; //Since write happens in WB and the regwrite signal here is of the instruction in ID we need that of the instruction in WB so just pass it till there
     reg [4:0] ID_EX_rd; //'' '' '' '' '' ''.... same as above thing
     reg [4:0] ID_EX_rs1, ID_EX_rs2;
+    reg ID_EX_ecall, ID_EX_ebreak;
     always@(posedge clk) begin //all outputs from ID made to reg last time made mistake of doing modulewise instead of these stagewise
         if(reset | stall_detected | sel) begin //added sel also since its currently in always-not-taken branch prediction so whenever branch is taken, prediction is wrong and flush is needed
             ID_EX_alu_src <= 1'b0;
@@ -81,6 +83,8 @@ module top_module (input clk, input reset);
             ID_EX_rd <= 5'd0;
             ID_EX_rs1 <= 5'd0;
             ID_EX_rs2 <= 5'd0;
+            ID_EX_ecall <= 1'b0;
+            ID_EX_ebreak <= 1'b0;
         end
         //ID_EX_rs1 <= rs1;
         //ID_EX_rs2 <= rs2;
@@ -104,6 +108,8 @@ module top_module (input clk, input reset);
             ID_EX_rd <= rd;
             ID_EX_rs1 <= rs1;
             ID_EX_rs2 <= rs2;
+            ID_EX_ecall <= ecall;
+            ID_EX_ebreak <= ebreak;
         end
     end
 
@@ -116,10 +122,12 @@ module top_module (input clk, input reset);
     wire [1:0] forward_1;
     wire [1:0] forward_2;
 
-    wire [31:0] alu_input_1, alu_input_2;
+    wire [31:0] alu_input_1, alu_input_2, forwarded_1;
 
-    assign alu_input_1 = (forward_1 == 2'b01) ? (EX_MEM_alu_result) : (forward_1 == 2'b10 ? write_value: ID_EX_rs1_read);
+    assign forwarded_1 = (forward_1 == 2'b01) ? (EX_MEM_alu_result) : (forward_1 == 2'b10 ? write_value: ID_EX_rs1_read);
     assign alu_input_2 = (forward_2 == 2'b01) ? (EX_MEM_alu_result) : (forward_2 == 2'b10 ? write_value: ID_EX_rs2_read);
+
+    assign alu_input_1 = (ID_EX_opcode == 7'b0010111) ? ID_EX_inst_addr : ((ID_EX_opcode == 7'b0110111) ? 32'd0: forwarded_1);
 
     alu i5(alu_input_1, alu_input_2, ID_EX_immediate_extended, ID_EX_alu_op, ID_EX_alu_src, ID_EX_funct3, ID_EX_s, alu_result, zero); //inputs changed to regs for pipeline
     adders i(ID_EX_inst_addr, ID_EX_opcode, ID_EX_immediate_extended, alu_result, PC_plus_4, PC_next);
@@ -138,6 +146,8 @@ module top_module (input clk, input reset);
     reg [31:0] EX_MEM_PC_plus_4;
     reg EX_MEM_reg_write; 
     reg [4:0] EX_MEM_rd; 
+    reg EX_MEM_ecall, EX_MEM_ebreak;
+    reg [2:0] EX_MEM_funct3; //needed for half/byte version detection for load and store
     always@(posedge clk) begin //only 2 outputs from EX stage to be reg and a few to be carried forward (like the ones which MEM needs)
         if(reset) begin
             EX_MEM_alu_result <= 32'd0;
@@ -149,6 +159,9 @@ module top_module (input clk, input reset);
             EX_MEM_PC_plus_4 <= 32'd0;
             EX_MEM_reg_write <= 1'b0;
             EX_MEM_rd <= 5'd0;
+            EX_MEM_ecall <= 1'b0;
+            EX_MEM_ebreak <= 1'b0;
+            EX_MEM_funct3 <= 3'd0;
         end
 
         else begin
@@ -164,11 +177,14 @@ module top_module (input clk, input reset);
             EX_MEM_PC_plus_4 <= PC_plus_4;
             EX_MEM_reg_write <= ID_EX_reg_write;
             EX_MEM_rd <= ID_EX_rd;
+            EX_MEM_ecall <= ID_EX_ecall;
+            EX_MEM_ebreak <= ID_EX_ebreak;
+            EX_MEM_funct3 <= ID_EX_funct3;
         end
     end
 
     wire [31:0] read_value; //done
-    data_memory i6(clk, EX_MEM_mem_read, EX_MEM_mem_write, EX_MEM_alu_result, EX_MEM_rs2_read, read_value); //all inputs changed to resp regs
+    data_memory i6(clk, EX_MEM_mem_read, EX_MEM_mem_write, EX_MEM_alu_result, EX_MEM_rs2_read, EX_MEM_funct3, read_value); //all inputs changed to resp regs
 
     reg [31:0] MEM_WB_read_value;
     reg [31:0] MEM_WB_alu_result; //WB needs this 
@@ -179,6 +195,7 @@ module top_module (input clk, input reset);
     reg [31:0] MEM_WB_PC_plus_4;
     reg MEM_WB_reg_write;
     reg [4:0] MEM_WB_rd;
+    reg MEM_WB_ecall, MEM_WB_ebreak;
     always@(posedge clk) begin
         if(reset) begin
             MEM_WB_read_value <= 32'd0;
@@ -187,6 +204,8 @@ module top_module (input clk, input reset);
             MEM_WB_PC_plus_4 <= 32'd0;
             MEM_WB_reg_write <= 1'b0;
             MEM_WB_rd <= 5'd0;
+            MEM_WB_ecall <= 1'b0;
+            MEM_WB_ebreak <= 1'b0;
         end
 
         else begin
@@ -199,6 +218,8 @@ module top_module (input clk, input reset);
             MEM_WB_PC_plus_4 <= EX_MEM_PC_plus_4;
             MEM_WB_reg_write <= EX_MEM_reg_write;
             MEM_WB_rd <= EX_MEM_rd;
+            MEM_WB_ecall <= EX_MEM_ecall;
+            MEM_WB_ebreak <= EX_MEM_ebreak;
         end
     end
     
@@ -211,5 +232,6 @@ module top_module (input clk, input reset);
     //adders i8(MEM_WB_inst_addr, MEM_WB_opcode, MEM_WB_immediate_extended, MEM_WB_alu_result, PC_plus_4, PC_next);
 
     assign adder_result = MEM_WB_PC_plus_4;
-
+    assign ecall_out = MEM_WB_ecall;
+    assign ebreak_out = MEM_WB_ebreak;
 endmodule

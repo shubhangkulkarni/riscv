@@ -1,6 +1,8 @@
 module adders (input [31:0] PC_value, input[6:0] opcode,  input [31:0] imm, input [31:0] alu_result,  output reg [31:0] PC_plus_4, output reg [31:0] PC_next);
 
     always@(*) begin
+    	PC_plus_4 = PC_value + 32'd4;
+    	PC_next = PC_value + 32'd4;
         case(opcode)
             7'b1100011: begin
                 PC_next = PC_value + imm;
@@ -17,8 +19,7 @@ module adders (input [31:0] PC_value, input[6:0] opcode,  input [31:0] imm, inpu
             end
 
             default: begin
-                PC_next = 32'd0;
-                PC_plus_4 = 32'd0;
+
             end
         endcase
     end

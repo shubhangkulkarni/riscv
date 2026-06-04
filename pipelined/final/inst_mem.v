@@ -1,11 +1,12 @@
-module instruction_mem(input [31:0] addr, output [31:0] instruction);
+module instruction_mem(input [31:0] addr, output [31:0] instruction); 
 
-    reg [31:0] mem [0:63];
+    reg [7:0] mem [0:32767];  //made this byte sized due to how the riscv-tests format was!
+    wire [31:0] adjusted_addr = addr - 32'h80000000;
 
-    assign instruction = mem[addr[31:2]];
+    assign instruction = {mem[adjusted_addr+3], mem[adjusted_addr+2], mem[adjusted_addr+1], mem[adjusted_addr]};
 
     initial begin
-        $readmemh("code.hex", mem);
+        $readmemh("lb.hex", mem);
     end
 
 endmodule

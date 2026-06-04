@@ -2,8 +2,8 @@ module reg_file(input clk, input [4:0] rs1, input [4:0] rs2, input write_ena, in
     
     reg [31:0] registers [0: 31];
 
-    assign rs1_read = (rs1==rd & write_ena) ? (write_value) : (rs1? registers[rs1]:32'd0);
-    assign rs2_read = (rs2==rd & write_ena) ? (write_value) : (rs2? registers[rs2]:32'd0);
+    assign rs1_read = (rs1==5'd0)? (32'd0) : ((rs1==rd & write_ena) ? (write_value) : (rs1? registers[rs1]:32'd0));
+    assign rs2_read = (rs2==5'd0)? (32'd0) : ((rs2==rd & write_ena) ? (write_value) : (rs2? registers[rs2]:32'd0));
 
     always@(posedge clk) begin
         if(write_ena & rd!= 5'd0) registers[rd] <= write_value;

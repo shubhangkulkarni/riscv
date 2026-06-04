@@ -1,0 +1,40 @@
+//rough writeup of problems faced (for my own reference)
+problems encounters:
+1. 2 NOPs forwarding issue: theoretically could've been solved by just writing into regfile at negedge and reading normally at posedge but might cause issues on FPGAs later. Instead a mux was added in the regfile to directly output the write_value itself as its read. 
+2. Note: after stall detection, the flip flops and PC were latched with the else if(!stall_detected) instead of just an else for both the PC and the IF_ID flip flops. - basically implicit latching
+3. priority in the case of flush and stall very important. Flush clearly has a higher priority 
+4. using always(*) with RHS arrays being very big (like in the case of data_mem) will end up taking iverilog forever!
+
+
+
+change inst_decode for the store word immediate extraction and the changes made to accommodate the new U type instructions 
+
+byte addresable memory now for riscv-tests
+
+branch was making alu_up=2'b01 which is basically subtraction but we need to do other ops also
+
+some very weird quirk of ternary operator in verilog that if one of the () : () is unsigned even if the other is signed it force converts it to unsigned. This was causing issues in sra
+
+sll was failing since I was initially not shifting by op2[4:0] instead I was doing op2 only but max shift is upto 32 so we need to do only lower 5 bits!
+
+
+changes made to get riscv-tests pass for all cases:
+1. u type instructions were not present before; added those - inst_decode needed to be edited (new opcode in case) along with proper immediate in that case only. After that it is seen that utype does not have rs1 or rs2 etc but ALU input one of them was always rs1 before so another mux was added to either make it (0) in case of lui and (PC) in the case of auipc so that alu does 0 + imm or PC+imm since alu_op for this was set to be 2'b00 (basically just addition so add 0 to imm or add PC to imm)
+
+2. ecall and ebreak were not handled at all before so added that also to inst_decode - made everything zero, just added extra output ecall and ebreak from the decode module and then just completely pass them till the end and even in the overall top.v added ecall_out and ebreak_out which would take value from the ecall and ebreak that had travelled all the way to the WB stage.
+
+3. The hex files after compiling tests from the riscv-tests repo were one byte per line so the datamem and instruction mem needed to have byte sized arrays instead of the 4byte word arrays I had previously so changed that also and accordingly edited the read and write part to write and read properly given that the size of each unit of the array. Also another thing here is that previously I didn't have any $readmemh in data_mem since I would manually write anything before reading but riscv-tests needed it to be preloaded so added that also!
+
+4. ecall and ebreak assignments were swapped by mistake during initial version so changed that 
+
+5. bne was not working at all and simulation was getting stuck in an infinite loop since one of the tests used bne to exit later. bne was not working since I was just checking the zero output from ALU (basically for branch I used to do subtraction and check zero) but for bne and other branch types that ofcourse won't work. 
+
+6. some latch forming fixes in the PC module 
+
+7. non-word versions of load and store were added 
+
+8. The shifts were failing (both left and right) since I was initially doing op1 << op2 etc instead of choosing just the lower 5bits (just assumed that input won't be greater than 5 bits) since the regs itself are 32 bits so max of 32 bit shifting. Another important issue here was that the ternary operator for some reason if one of the () : () is unsigned ends up implicitly converting the other one also to unsigned (even if it is explicitly mentioned as $signed) so used if/else instead of that.
+
+9. During the 2NOPs direct passthrough in the regfile, I had forgotten to check for rd!=0 due to which some tests were failing. (Gemini helped me find this out since I couldn't) 
+
+10. This was done in the beginning only - the hex file assumes memory stars at @80000000 but since I just have an array for the memory in the inst_mem and data_mem modules, this was changed to @00000000, and all addresses inside were subtracted by 0x80000000 since the initial code assumes it started at 0x80000000 and would have the same offset for all addresses.

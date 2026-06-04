@@ -1,7 +1,7 @@
 module program_counter(input clk, input reset, input sel, input stall_detected, input [31:0] branch_addr, output reg [31:0] inst_addr);
 
     always@(posedge clk) begin
-        if(reset) inst_addr <= 32'd0;
+        if(reset) inst_addr <= 32'h80000000;
         else if (!stall_detected) inst_addr <= new_addr; //implicit latching when stall_detected is 1
     end 
 

@@ -1,6 +1,7 @@
-module instruction_decode(input [31:0] instruction, output [4:0] rs1, output [4:0] rs2, output reg reg_write,  output [4:0] rd, output reg alu_src, output reg [1:0] wb_sel, output reg mem_read, output reg mem_write, output reg branch, output reg [1:0] alu_op, output reg [31:0] immediate_extended, output [2:0]funct3, output s ); //made it [1:0] wb_sel instead of just mem_reg since in the case of jump i.e jtype instructions, we would need to select between output of ALU, MEM and the standalone PC+4 adder for the link reg.
+module instruction_decode(input [31:0] instruction, output [4:0] rs1, output [4:0] rs2, output reg reg_write,  output [4:0] rd, output reg alu_src, output reg [1:0] wb_sel, output reg mem_read, output reg mem_write, output reg branch, output reg [1:0] alu_op, output reg [31:0] immediate_extended, output [2:0]funct3, output s, output reg ecall, output reg ebreak); //made it [1:0] wb_sel instead of just mem_reg since in the case of jump i.e jtype instructions, we would need to select between output of ALU, MEM and the standalone PC+4 adder for the link reg.
     
     wire [6:0] opcode;
+    
 
     assign opcode = instruction[6:0];
     assign rs1 = instruction[19:15];
@@ -11,7 +12,8 @@ module instruction_decode(input [31:0] instruction, output [4:0] rs1, output [4:
     assign s = instruction[30];
 
     always@(*) begin
-        
+        ecall = 1'b0;
+        ebreak = 1'b0;
         case(opcode) 
             
             7'b0110011: begin
@@ -89,6 +91,31 @@ module instruction_decode(input [31:0] instruction, output [4:0] rs1, output [4:
                 branch = 1'b1; //but we need a mux before the mux of the PC to choose between rs1+imm or PC+imm;
                 alu_op = 2'b00; //Even though for Itype its 11, it is 00 here since we just need to add the imm to rs1
                 immediate_extended = {{20{instruction[31]}}, instruction[31:20]};
+            end
+
+            7'b0110111, 7'b0010111: begin //for utype instructions
+                reg_write = 1'b1;
+                alu_src = 1'b1;
+                wb_sel = 2'b00;
+                mem_read = 1'b0;
+                mem_write = 1'b0;
+                branch = 1'b0;
+                alu_op = 2'b00;
+                immediate_extended = {instruction[31:12], 12'd0}; 
+            end
+            
+            7'b1110011: begin
+                reg_write = 1'b0;
+                alu_src = 1'b0;
+                wb_sel = 2'b00;
+                mem_read = 1'b0;
+                mem_write = 1'b0;
+                branch = 1'b0;
+                alu_op = 2'b00;
+                immediate_extended = 32'd0;
+
+                if(instruction == 32'h00000073 ) ecall = 1'b1;
+                else if (instruction == 32'h00100073) ebreak = 1'b1;
             end
 
             default: begin
