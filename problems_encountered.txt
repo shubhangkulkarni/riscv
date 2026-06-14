@@ -38,3 +38,11 @@ changes made to get riscv-tests pass for all cases:
 9. During the 2NOPs direct passthrough in the regfile, I had forgotten to check for rd!=0 due to which some tests were failing. (Gemini helped me find this out since I couldn't) 
 
 10. This was done in the beginning only - the hex file assumes memory stars at @80000000 but since I just have an array for the memory in the inst_mem and data_mem modules, this was changed to @00000000, and all addresses inside were subtracted by 0x80000000 since the initial code assumes it started at 0x80000000 and would have the same offset for all addresses.
+
+-Exception handling errors seen:
+1. the exception handler is in the MEM stage and since I had assumed MEM-to-EX forwarding worked I thought it would work even if it was a csr instruction but since the writing happened in a separate module and not the usual data_mem module (whose output only I was forwarding before), I had to include the output of this exception handler also to be able to forward back to EX. (IMPORTANT!!)
+
+
+
+-To improve the timing part for tang nano 9k on gowin eda:
+1. The forwarding check had the largest slack so made zero checking independent of alu_result (check ALU module for more clarity) by making it op1==op2, op1!=op2(for bne) etc, which results in this check being computed in parallel so it is faster.

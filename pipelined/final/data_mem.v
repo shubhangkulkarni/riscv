@@ -1,8 +1,16 @@
-module data_memory (input clk, input mem_read, input mem_write, input [31:0] address, input [31:0] write_data, input [2:0] funct3, output reg [31:0] read_value);
+module data_memory (input clk, input mem_read, input mem_write, input [31:0] address, input [31:0] write_data, input [2:0] funct3, output reg [31:0] read_value, output load_address_misaligned, output store_address_misaligned);
 
     reg [7:0] data_mem [0: 32767];
+    //reg [7:0] data_mem [0: 15];
     
-    initial $readmemh("lb.hex", data_mem);
+    initial $readmemh("program.hex", data_mem);
+
+    wire is_word = (funct3[1:0] == 2'b10);
+    wire is_halfword = (funct3[1:0] == 2'b01);
+
+    wire addr_misaligned = (is_word && address[1:0]!=2'b00) || (is_halfword && address[0]!=1'b0);
+    assign load_address_misaligned = (mem_read) && (addr_misaligned);
+    assign store_address_misaligned = (mem_write) && (addr_misaligned);
     
     wire [31:0] adjusted_addr = address - 32'h80000000;
     wire [7:0] b0 = data_mem[adjusted_addr];
@@ -26,7 +34,7 @@ module data_memory (input clk, input mem_read, input mem_write, input [31:0] add
 
     always@(posedge clk) begin
         
-        if (mem_write) begin
+        if (mem_write & !store_address_misaligned) begin
             case(funct3) 
                 3'b000: begin
                     data_mem[adjusted_addr] <= write_data[7:0];

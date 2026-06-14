@@ -1,4 +1,4 @@
-module adders (input [31:0] PC_value, input[6:0] opcode,  input [31:0] imm, input [31:0] alu_result,  output reg [31:0] PC_plus_4, output reg [31:0] PC_next);
+module adders (input [31:0] PC_value, input[6:0] opcode,  input [31:0] imm, input [31:0] alu_result, input[31:0] alu_input_1,  output reg [31:0] PC_plus_4, output reg [31:0] PC_next);
 
     always@(*) begin
     	PC_plus_4 = PC_value + 32'd4;
@@ -14,7 +14,8 @@ module adders (input [31:0] PC_value, input[6:0] opcode,  input [31:0] imm, inpu
             end
 
             7'b1100111: begin
-                PC_next = alu_result;
+                //PC_next = alu_result;
+                PC_next = alu_input_1 + imm; //trying to check if its faster than waiting for alu_result
                 PC_plus_4 = PC_value + 32'd4;
             end
 

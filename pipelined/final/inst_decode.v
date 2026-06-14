@@ -1,4 +1,4 @@
-module instruction_decode(input [31:0] instruction, output [4:0] rs1, output [4:0] rs2, output reg reg_write,  output [4:0] rd, output reg alu_src, output reg [1:0] wb_sel, output reg mem_read, output reg mem_write, output reg branch, output reg [1:0] alu_op, output reg [31:0] immediate_extended, output [2:0]funct3, output s, output reg ecall, output reg ebreak); //made it [1:0] wb_sel instead of just mem_reg since in the case of jump i.e jtype instructions, we would need to select between output of ALU, MEM and the standalone PC+4 adder for the link reg.
+module instruction_decode(input [31:0] instruction, output [4:0] rs1, output [4:0] rs2, output reg reg_write,  output [4:0] rd, output reg alu_src, output reg [1:0] wb_sel, output reg mem_read, output reg mem_write, output reg branch, output reg [1:0] alu_op, output reg [31:0] immediate_extended, output [2:0]funct3, output s, output reg ecall, output reg ebreak, output reg illegal_instruction, output reg mret, output reg is_csr); //made it [1:0] wb_sel instead of just mem_reg since in the case of jump i.e jtype instructions, we would need to select between output of ALU, MEM and the standalone PC+4 adder for the link reg.
     
     wire [6:0] opcode;
     
@@ -14,6 +14,10 @@ module instruction_decode(input [31:0] instruction, output [4:0] rs1, output [4:
     always@(*) begin
         ecall = 1'b0;
         ebreak = 1'b0;
+        illegal_instruction = 1'b0; //defaults
+        is_csr = 1'b0;
+        mret = 1'b0;
+
         case(opcode) 
             
             7'b0110011: begin
@@ -113,9 +117,52 @@ module instruction_decode(input [31:0] instruction, output [4:0] rs1, output [4:
                 branch = 1'b0;
                 alu_op = 2'b00;
                 immediate_extended = 32'd0;
+                ecall = 1'b0;
+                ebreak = 1'b0;
+                mret = 1'b0; //NOT YET DECLARED ANYWHERE!
+                is_csr = 1'b0; //NOT YET DECLARED ANYWHERE!
+                illegal_instruction = 1'b0;
 
-                if(instruction == 32'h00000073 ) ecall = 1'b1;
-                else if (instruction == 32'h00100073) ebreak = 1'b1;
+                //if(instruction == 32'h00000073 ) ecall = 1'b1;
+                //else if (instruction == 32'h00100073) ebreak = 1'b1;
+                //else illegal_instruction = 1'b1; //important - since we need it to be one even when some of the system instructions are not implemented!
+
+                //ecall, ebreak, mret, and all csr related instructions have this opcode only so for using case here to set some control signals correctly
+
+                case(instruction[14:12]) 
+                    3'b000: begin
+                        if(instruction[31:20] == 12'd0) ecall = 1'b1;
+                        else if(instruction[31:20] == 12'd1) ebreak = 1'b1;
+                        else if(instruction == 32'h30200073) mret = 1'b1;
+                        else illegal_instruction = 1'b1;
+                    end
+
+                    3'b001, 3'b010, 3'b011: begin
+                        reg_write = 1'b1;
+                        alu_src = 1'b0;
+                        wb_sel = 2'b11; //using the extra available input of the writeback mux since its coming from neither the adder for jal, ALU nor the MEM output. 
+                        mem_read = 1'b0;
+                        mem_write = 1'b0;
+                        branch = 1'b0;
+                        alu_op = 2'b00; //just keeping it zero since we either has to do alu_result = rs1 or alu_result = imm so I'll use the is_csr signal to do this as a separate conditonal block in the ALU instead of using the ALU_op at all
+                        immediate_extended = 32'd0;
+                        is_csr = 1'b1;
+                    end
+
+                    3'b101, 3'b110, 3'b111: begin
+                        reg_write = 1'b1;
+                        alu_src = 1'b1;
+                        wb_sel = 2'b11;
+                        mem_read = 1'b0;
+                        mem_write = 1'b0;
+                        branch = 1'b0;
+                        alu_op = 2'b00; //same as above
+                        immediate_extended = {{27{instruction[19]}}, instruction[19:15]};
+                        is_csr = 1'b1;
+                    end
+
+                    default: illegal_instruction = 1'b1;
+                endcase
             end
 
             default: begin
@@ -127,6 +174,7 @@ module instruction_decode(input [31:0] instruction, output [4:0] rs1, output [4:
                 branch = 1'b0;
                 alu_op = 2'b00;
                 immediate_extended = 32'd0;
+                illegal_instruction = 1'b1;
             end
         endcase
 

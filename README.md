@@ -11,3 +11,4 @@ In order to test the working, please load the instructions into the code.hex fil
 
 Note: Currently supports all riscv32i instructions (as per the RISCV_CARD.pdf file) except U-type, ecall, ebreak, and the non-word versions of load and store. 
 
+
