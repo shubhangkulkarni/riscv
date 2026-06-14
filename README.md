@@ -8,6 +8,7 @@ In order to test the working, please load the instructions into the code.hex fil
 3. The pipelined version uses a basic 'always not-taken' branch prediction as of now. To be updated soon.
 4. Stall detection, forwarding (WB-to-EX, and MEM-to-EX) and flush in case of wrong branch prediction implemented.
 5. Tested with the standard riscv-tests repo - passes all tests (find changes made in the problems_encountered.txt file - roughly written)
+6. Implemented exception handling for ecall, ebreak, illegal instruction, misaligned instruction/data address (both load and store), with mtvec, mepc, and mcause CSRs (read, write and return with mret).
 
 Note: Currently supports all riscv32i instructions (as per the RISCV_CARD.pdf file) except U-type, ecall, ebreak, and the non-word versions of load and store. 
 
