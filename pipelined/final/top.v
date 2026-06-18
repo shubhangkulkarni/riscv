@@ -4,8 +4,17 @@ module top_module (input clk, input reset, output ecall_out, output ebreak_out, 
     wire [31:0] branch_addr; //done
     wire [31:0] inst_addr; //done
     wire inst_addr_misaligned; //to be driven //done
-    program_counter i1 (clk, reset, sel, stall_detected, branch_addr, EX_MEM_mret, exception_detected, mepc_out, mtvec_out, inst_addr, inst_addr_misaligned);
-    assign branch_addr = PC_next;
+    wire [9:0] global_history; //needs to be passed down since ID_EX_global_history is needed to update global_history in case of misprediction //changed to 10 bits
+    wire prediction;
+    wire [31:0] btb_branch_addr;
+    wire btb_hit;
+
+    branch_predictor i_branch_predictor(clk, reset, inst_addr, btb_hit, ID_EX_branch, ID_EX_inst_addr, ID_EX_global_history, misprediction, sel, global_history, prediction); //sel itself is the correct_outcome (which was previously being used when we had a branch or jump instruction //btb_hit itself is the best way to find IF_is_branch since no decode has happened
+
+    btb i_btb(clk, reset, inst_addr, ID_EX_inst_addr, ID_EX_branch, PC_next, prediction, btb_hit, btb_branch_addr); //ID_EX_branch itself is EX_is_branch signal which includes both branch and jump instructions
+
+    program_counter i1 (clk, reset, sel, stall_detected, branch_addr, EX_MEM_mret, exception_detected, mepc_out, mtvec_out, misprediction, PC_plus_4, btb_branch_addr, inst_addr, inst_addr_misaligned);
+    assign branch_addr = PC_next; //to be updated after branch prediction fully in place //this is what is coming from EX (to be used when misprediction)
 
     wire [31:0] instruction; //done
     instruction_mem i2 (inst_addr, instruction);
@@ -13,18 +22,24 @@ module top_module (input clk, input reset, output ecall_out, output ebreak_out, 
     reg [31:0] IF_ID_inst_addr, IF_ID_instruction; //inst_addr and instruction are the only 2 outputs from IF so reg done
     reg IF_ID_exception_valid;
     reg [3:0] IF_ID_exception_cause; //these 2 needed to handle exceptions. Overall exception handler kept in MEM stage.
+    reg [9:0] IF_ID_global_history; //changed to 10 bits
+    reg IF_ID_prediction;
     always@(posedge clk) begin
-        if (reset | sel | exception_flush) begin //ORed the sel signal also since flushing needs to happen whenever sel=1 since currently its in the always-not-taken branch prediction
+        if (reset | misprediction | exception_flush) begin //ORed the sel signal also since flushing needs to happen whenever sel=1 since currently its in the always-not-taken branch prediction //replaced sel with misprediction after adding thhe gshare branch predictor and btb
             IF_ID_inst_addr <= 32'd0;
             IF_ID_instruction <= 32'h00000013; //this is basically addi x0 x0 0 which basically does nothing in the ahead stages but also does not give full of xxxxxx results esp for PC
             IF_ID_exception_valid <= 1'b0;
             IF_ID_exception_cause <= 4'd0;
+            IF_ID_global_history <= 10'd0; //changed to 10 bits
+            IF_ID_prediction <= 1'b0;
         end
         else if (!stall_detected) begin //implicity latching in the case of stall being detected i.e when stall detected is 1
             IF_ID_inst_addr <= inst_addr;
             IF_ID_instruction <= instruction;
             IF_ID_exception_valid <= inst_addr_misaligned;
             IF_ID_exception_cause <= 4'd0; //standard code for misaligned instruction address ALSO: no need to check if misaligned or not here since either ways value will be 0 only
+            IF_ID_global_history <= global_history;
+            IF_ID_prediction <= prediction;
         end
     end
     
@@ -80,8 +95,11 @@ module top_module (input clk, input reset, output ecall_out, output ebreak_out, 
     reg [3:0] ID_EX_exception_cause; //these 2 needed for exception handling later in MEM
     reg ID_EX_mret, ID_EX_is_csr; //for the computations and writeback of csr type instructions for handling 
     reg [11:0] ID_EX_csr_addr; //exception handling software instructions
+    reg [9:0] ID_EX_global_history; //changed to 10 bits
+    reg ID_EX_prediction;
+
     always@(posedge clk) begin //all outputs from ID made to reg last time made mistake of doing modulewise instead of these stagewise
-        if(reset | stall_detected | sel | exception_flush) begin //added sel also since its currently in always-not-taken branch prediction so whenever branch is taken, prediction is wrong and flush is needed
+        if(reset | stall_detected | misprediction | exception_flush) begin //added sel also since its currently in always-not-taken branch prediction so whenever branch is taken, prediction is wrong and flush is needed
             ID_EX_alu_src <= 1'b0;
             ID_EX_wb_sel <= 2'd0;
             ID_EX_mem_read <= 1'b0;
@@ -106,6 +124,8 @@ module top_module (input clk, input reset, output ecall_out, output ebreak_out, 
             ID_EX_mret <= 1'b0;
             ID_EX_is_csr <= 1'b0;
             ID_EX_csr_addr <= 12'd0;
+            ID_EX_global_history <= 10'd0;//changed to 10 bits
+            ID_EX_prediction <= 1'b0;
         end
         //ID_EX_rs1 <= rs1;
         //ID_EX_rs2 <= rs2;
@@ -134,6 +154,8 @@ module top_module (input clk, input reset, output ecall_out, output ebreak_out, 
             ID_EX_mret <= mret;
             ID_EX_is_csr <= is_csr;
             ID_EX_csr_addr <= csr_addr;
+            ID_EX_global_history <= IF_ID_global_history;
+            ID_EX_prediction <= IF_ID_prediction;
             if(IF_ID_exception_valid) begin //if this instruction had exception detected in IF only then carry the same forward (some sort of priority incase multiple exceptions by same instruction)
                 ID_EX_exception_valid <= IF_ID_exception_valid;
                 ID_EX_exception_cause <= IF_ID_exception_cause;
@@ -159,9 +181,10 @@ module top_module (input clk, input reset, output ecall_out, output ebreak_out, 
 
     wire [1:0] forward_1;
     wire [1:0] forward_2;
-
+    
     wire [31:0] alu_input_1, alu_input_2, forwarded_1;
     wire [31:0] forwarded_value_from_MEM; //this could be from the data_mem or the exception handler that's why had to add another mux here to select
+    wire misprediction;
 
     assign forwarded_value_from_MEM = (EX_MEM_is_csr) ? (next_csr) : (EX_MEM_alu_result);
 
@@ -176,6 +199,7 @@ module top_module (input clk, input reset, output ecall_out, output ebreak_out, 
     adders i(ID_EX_inst_addr, ID_EX_opcode, ID_EX_immediate_extended, alu_result, alu_input_1, PC_plus_4, PC_next);
     forwarding_unit i_forward (ID_EX_rs1, ID_EX_rs2, EX_MEM_rd, EX_MEM_reg_write, MEM_WB_rd, MEM_WB_reg_write, forward_1, forward_2);
     assign sel = (ID_EX_opcode == 7'b1100011) ? (ID_EX_branch & zero) : ID_EX_branch;
+    assign misprediction = ID_EX_branch? (ID_EX_prediction ^ sel): 1'b0;
 
     reg [31:0] EX_MEM_alu_result;
     reg EX_MEM_zero;

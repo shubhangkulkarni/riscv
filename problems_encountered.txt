@@ -43,6 +43,14 @@ changes made to get riscv-tests pass for all cases:
 1. the exception handler is in the MEM stage and since I had assumed MEM-to-EX forwarding worked I thought it would work even if it was a csr instruction but since the writing happened in a separate module and not the usual data_mem module (whose output only I was forwarding before), I had to include the output of this exception handler also to be able to forward back to EX. (IMPORTANT!!)
 
 
+-Flow of branch prediction:
+1. As instruction is in IF, the btb module gets branch address, and checks in the btb (127 entry direct mapped), and tells if hit or miss to the branch predictor module
+2. IF_is_branch is used in branch_prediction - i.e it updates the 10 bit global history reg (gshare predictor) only if IF_is_branch and IF_is_branch since we haven't really decoded in IF yet, IF_is_branch is guessed using btb hit/miss.
+3. The prediction happens based on the counter indexed by the XOR of the 10 bits of inst_addr (except the last 2 bits since addresses are 4bytes) and the global_history reg (this is basically the gshare predictor, seen in hdlbits question) and global_history is updated now only in IF (speculatively) but the counter in updated only after confirmation at EX 
+4. If mispredicted, then global_history must be changed (but we need the old global_history, not the current one since 2 other instructions which came in wrongly due to misprediction would have corrupted it) so we pipeline the global_history also until EX and also the prediction done is pipelined to even be able to check for misprediction in the first place. 
+5. IMPORTANT: had made the error of assigning misprediction signal as misprediction = ID_EX_prediction ^ sel (sel was previously high whenever EX_is_branch or jump so used sel itself for EX_is_branch). EX_is_branch is used to update counters so that we update only for branch/jump and not for all instructions which don't need it. 
+
+
 
 -To improve the timing part for tang nano 9k on gowin eda:
 1. The forwarding check had the largest slack so made zero checking independent of alu_result (check ALU module for more clarity) by making it op1==op2, op1!=op2(for bne) etc, which results in this check being computed in parallel so it is faster.
